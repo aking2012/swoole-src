@@ -10,7 +10,7 @@ skip_if_no_top();
 require __DIR__ . '/../include/bootstrap.php';
 
 define('FRAME_DATA_SIZE', 100 * 1024);
-define('REQUESTS_TIMES', 64);
+define('REQUESTS_TIMES', USE_VALGRIND ? 4 : 64);
 
 $pm = new ProcessManager();
 $pm->parentFunc = function () use ($pm) {

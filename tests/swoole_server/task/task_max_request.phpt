@@ -6,7 +6,7 @@ swoole_server/task: task_max_request
 <?php
 require __DIR__ . '/../../include/bootstrap.php';
 
-const N = 4000;
+define('N', USE_VALGRIND ? 400 : 4000);
 
 use Swoole\Server;
 use Swoole\Atomic;
@@ -20,7 +20,7 @@ $process = new Swoole\Process(function() {
     $serv = new Server('127.0.0.1', get_one_free_port());
     $serv->set([
         "worker_num" => 1,
-        'task_max_request' => 200,
+        'task_max_request' => N / 20,
         'task_worker_num' => 4,
         'log_file' => TEST_LOG_FILE,
     ]);
@@ -64,8 +64,8 @@ $process = new Swoole\Process(function() {
 $process->start();
 
 Swoole\Process::wait();
-Assert::same($counter1->get(), 4000);
-Assert::same($counter2->get(), 4000);
+Assert::same($counter1->get(), N);
+Assert::same($counter2->get(), N);
 Assert::assert($counter3->get() > 15);
 echo "DONE\n";
 ?>

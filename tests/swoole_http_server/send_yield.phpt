@@ -8,7 +8,8 @@ require __DIR__ . '/../include/bootstrap.php';
 const ONE_MEGABYTES = 1024 * 1024;
 foreach ([SWOOLE_BASE, SWOOLE_PROCESS] as $mode) {
     $pm = new ProcessManager;
-    $pm->initRandomData(1, 64 * ONE_MEGABYTES);
+    $n = USE_VALGRIND ? 16 : 64;
+    $pm->initRandomData(1, $n * ONE_MEGABYTES);
     $pm->parentFunc = function ($pid) use ($pm) {
         Swoole\Coroutine\run(function () use ($pm) {
             $data = httpGetBody("http://127.0.0.1:{$pm->getFreePort()}/");
