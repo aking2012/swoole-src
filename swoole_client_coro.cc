@@ -994,6 +994,7 @@ static PHP_METHOD(swoole_client_coro, getsockname)
     zval zaddress;
     ZVAL_STRING(&zaddress, swSocket_get_ip(cli->get_type(), &sa));
     add_assoc_zval(return_value, "host", &zaddress); /* backward compatibility */
+    Z_ADDREF(zaddress);
     add_assoc_zval(return_value, "address", &zaddress);
     add_assoc_long(return_value, "port", swSocket_get_port(cli->get_type(), &sa));
 }
@@ -1042,6 +1043,7 @@ static PHP_METHOD(swoole_client_coro, getpeername)
     zval zaddress;
     ZVAL_STRING(&zaddress, swSocket_get_ip(cli->get_type(), &sa));
     add_assoc_zval(return_value, "host", &zaddress); /* backward compatibility */
+    Z_ADDREF(zaddress);
     add_assoc_zval(return_value, "address", &zaddress);
     add_assoc_long(return_value, "port", swSocket_get_port(cli->get_type(), &sa));
 }
@@ -1090,7 +1092,7 @@ static PHP_METHOD(swoole_client_coro, getPeerCert)
         RETURN_FALSE;
     }
     char buf[8192];
-    int n = swSSL_get_client_certificate(cli->socket->ssl, buf, sizeof(buf));
+    int n = swSSL_get_peer_cert(cli->socket->ssl, buf, sizeof(buf));
     if (n < 0)
     {
         RETURN_FALSE;

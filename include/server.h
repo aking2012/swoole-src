@@ -17,7 +17,7 @@
 #pragma once
 
 #include "swoole_api.h"
-#include "connection.h"
+#include "ssl.h"
 #include "http.h"
 
 #ifdef SW_USE_OPENSSL
@@ -50,7 +50,6 @@ enum swServer_event_type
     SW_SERVER_EVENT_PROXY_START,
     SW_SERVER_EVENT_PROXY_END,
     //event operate
-    SW_SERVER_EVENT_CONFIRM,
     SW_SERVER_EVENT_PAUSE_RECV,
     SW_SERVER_EVENT_RESUME_RECV,
     //buffer event
@@ -612,6 +611,7 @@ struct swServer
      */
     void** (*create_buffers)(swServer *serv, uint buffer_num);
     void* (*get_buffer)(swServer *serv, swDataHead *info);
+    size_t (*get_buffer_len)(swServer *serv, swDataHead *info);
     void (*add_buffer_len)(swServer *serv, swDataHead *info, size_t len);
     void (*move_buffer)(swServer *serv, swPipeBuffer *buffer);
     size_t (*get_packet)(swServer *serv, swEventData *req, char **data_ptr);
@@ -974,25 +974,24 @@ static sw_inline int swServer_connection_incoming(swServer *serv, swReactor *rea
         return reactor->add(reactor, conn->socket, SW_EVENT_READ);
     }
 #endif
-    //delay receive, wait resume command.
-    if (serv->enable_delay_receive)
+    //delay receive, wait resume command
+    if (!serv->enable_delay_receive)
     {
-        conn->socket->listen_wait = 1;
-        return SW_OK;
-    }
-    if (reactor->add(reactor, conn->socket, SW_EVENT_READ) < 0)
-    {
-        return SW_ERR;
+        if (reactor->add(reactor, conn->socket, SW_EVENT_READ) < 0)
+        {
+            return SW_ERR;
+        }
     }
     //notify worker process
     if (serv->onConnect)
     {
-        return serv->notify(serv, conn, SW_SERVER_EVENT_CONNECT);
+        if (serv->notify(serv, conn, SW_SERVER_EVENT_CONNECT) < 0)
+        {
+            return SW_ERR;
+        }
     }
-    else
-    {
-        return SW_OK;
-    }
+
+    return SW_OK;
 }
 
 void swServer_connection_each(swServer *serv, void (*callback)(swConnection *conn));

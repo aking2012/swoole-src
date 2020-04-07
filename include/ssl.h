@@ -95,10 +95,10 @@ enum swSSL_method
     SW_TLSv1_2_SERVER_METHOD,
     SW_TLSv1_2_CLIENT_METHOD,
 #endif
+#ifdef SW_SUPPORT_DTLS
     SW_DTLSv1_METHOD,
     SW_DTLSv1_SERVER_METHOD,
     SW_DTLSv1_CLIENT_METHOD,
-#ifdef SW_SUPPORT_DTLS
     SW_DTLS_CLIENT_METHOD,
     SW_DTLS_SERVER_METHOD,
 #endif
@@ -128,7 +128,7 @@ int swSSL_create(swSocket *conn, SSL_CTX* ssl_context, int flags);
 int swSSL_set_client_certificate(SSL_CTX *ctx, char *cert_file, int depth);
 int swSSL_set_capath(swSSL_option *cfg, SSL_CTX *ctx);
 int swSSL_check_host(swSocket *conn, char *tls_host_name);
-int swSSL_get_client_certificate(SSL *ssl, char *buffer, size_t length);
+int swSSL_get_peer_cert(SSL *ssl, char *buffer, size_t length);
 const char* swSSL_get_error();
 int swSSL_verify(swSocket *conn, int allow_self_signed);
 enum swReturn_code swSSL_accept(swSocket *conn);

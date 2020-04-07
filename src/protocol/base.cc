@@ -17,7 +17,6 @@
  */
 
 #include "swoole_cxx.h"
-#include "connection.h"
 
 using namespace swoole;
 
@@ -69,11 +68,15 @@ static sw_inline int swProtocol_split_package_by_eof(swProtocol *protocol, swSoc
         }
         if (conn->removed)
         {
-            retval = SW_OK;
             return false;
         }
         return true;
     });
+
+    if (conn->removed)
+    {
+        return SW_CLOSE;
+    }
 
     if (n < 0)
     {

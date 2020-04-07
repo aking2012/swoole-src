@@ -15,7 +15,6 @@
  */
 
 #include "swoole_server.h"
-#include "connection.h"
 #include "websocket.h"
 #include "ext/standard/php_var.h"
 #include "zend_smart_str.h"
@@ -115,6 +114,7 @@ static zval* php_swoole_server_add_port(swServer *serv, swListenPort *port);
  */
 static void** php_swoole_server_worker_create_buffers(swServer *serv, uint buffer_num);
 static void* php_swoole_server_worker_get_buffer(swServer *serv, swDataHead *info);
+static size_t php_swoole_server_worker_get_buffer_len(swServer *serv, swDataHead *info);
 static void php_swoole_server_worker_add_buffer_len(swServer *serv, swDataHead *info, size_t len);
 static void php_swoole_server_worker_move_buffer(swServer *serv, swPipeBuffer *buffer);
 
@@ -427,10 +427,6 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_swoole_server_resume, 0, 0, 1)
     ZEND_ARG_INFO(0, fd)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_swoole_server_confirm, 0, 0, 1)
-    ZEND_ARG_INFO(0, fd)
-ZEND_END_ARG_INFO()
-
 #ifdef SWOOLE_SOCKETS_SUPPORT
 ZEND_BEGIN_ARG_INFO_EX(arginfo_swoole_server_getSocket, 0, 0, 0)
     ZEND_ARG_INFO(0, port)
@@ -507,12 +503,16 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_swoole_server_addProcess, 0, 0, 1)
     ZEND_ARG_OBJ_INFO(0, process, swoole_process, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_swoole_getClientInfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_swoole_server_getClientInfo, 0, 0, 1)
     ZEND_ARG_INFO(0, fd)
     ZEND_ARG_INFO(0, reactor_id)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_swoole_getClientList, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_swoole_server_getWorkerStatus, 0, 0, 0)
+    ZEND_ARG_INFO(0, worker_id)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_swoole_server_getClientList, 0, 0, 1)
     ZEND_ARG_INFO(0, start_fd)
     ZEND_ARG_INFO(0, find_count)
 ZEND_END_ARG_INFO()
@@ -555,7 +555,6 @@ static PHP_METHOD(swoole_server, sendwait);
 static PHP_METHOD(swoole_server, exists);
 static PHP_METHOD(swoole_server, protect);
 static PHP_METHOD(swoole_server, close);
-static PHP_METHOD(swoole_server, confirm);
 static PHP_METHOD(swoole_server, pause);
 static PHP_METHOD(swoole_server, resume);
 static PHP_METHOD(swoole_server, task);
@@ -571,6 +570,7 @@ static PHP_METHOD(swoole_server, getClientInfo);
 static PHP_METHOD(swoole_server, getInstance);
 static PHP_METHOD(swoole_server, getWorkerId);
 static PHP_METHOD(swoole_server, getWorkerPid);
+static PHP_METHOD(swoole_server, getWorkerStatus);
 static PHP_METHOD(swoole_server, getManagerPid);
 static PHP_METHOD(swoole_server, getMasterPid);
 #ifdef SW_BUFFER_RECV_TIME
@@ -619,7 +619,7 @@ static zend_function_entry swoole_server_methods[] = {
     PHP_ME(swoole_server, protect, arginfo_swoole_server_protect, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, sendfile, arginfo_swoole_server_sendfile, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, close, arginfo_swoole_server_close, ZEND_ACC_PUBLIC)
-    PHP_ME(swoole_server, confirm, arginfo_swoole_server_confirm, ZEND_ACC_PUBLIC)
+    PHP_MALIAS(swoole_server, confirm, resume, arginfo_swoole_server_resume, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, pause, arginfo_swoole_server_pause, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, resume, arginfo_swoole_server_resume, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, task, arginfo_swoole_server_task, ZEND_ACC_PUBLIC)
@@ -632,16 +632,17 @@ static zend_function_entry swoole_server_methods[] = {
     PHP_ME(swoole_server, stop, arginfo_swoole_server_stop, ZEND_ACC_PUBLIC)
     PHP_FALIAS(getLastError, swoole_last_error, arginfo_swoole_void)
     PHP_ME(swoole_server, heartbeat, arginfo_swoole_server_heartbeat, ZEND_ACC_PUBLIC)
-    PHP_ME(swoole_server, getClientInfo, arginfo_swoole_getClientInfo, ZEND_ACC_PUBLIC)
-    PHP_ME(swoole_server, getClientList, arginfo_swoole_getClientList, ZEND_ACC_PUBLIC)
+    PHP_ME(swoole_server, getClientInfo, arginfo_swoole_server_getClientInfo, ZEND_ACC_PUBLIC)
+    PHP_ME(swoole_server, getClientList, arginfo_swoole_server_getClientList, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, getInstance, arginfo_swoole_void, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
     PHP_ME(swoole_server, getWorkerId, arginfo_swoole_void, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, getWorkerPid, arginfo_swoole_void, ZEND_ACC_PUBLIC)
+    PHP_ME(swoole_server, getWorkerStatus, arginfo_swoole_server_getWorkerStatus, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, getManagerPid, arginfo_swoole_void, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, getMasterPid, arginfo_swoole_void, ZEND_ACC_PUBLIC)
     //psr-0 style
-    PHP_MALIAS(swoole_server, connection_info, getClientInfo, arginfo_swoole_getClientInfo, ZEND_ACC_PUBLIC)
-    PHP_MALIAS(swoole_server, connection_list, getClientList, arginfo_swoole_getClientList, ZEND_ACC_PUBLIC)
+    PHP_MALIAS(swoole_server, connection_info, getClientInfo, arginfo_swoole_server_getClientInfo, ZEND_ACC_PUBLIC)
+    PHP_MALIAS(swoole_server, connection_list, getClientList, arginfo_swoole_server_getClientList, ZEND_ACC_PUBLIC)
     //process
     PHP_ME(swoole_server, sendMessage, arginfo_swoole_server_sendMessage, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_server, addProcess, arginfo_swoole_server_addProcess, ZEND_ACC_PUBLIC)
@@ -755,6 +756,9 @@ void php_swoole_server_minit(int module_number)
     SW_REGISTER_LONG_CONSTANT("SWOOLE_TASK_COROUTINE", SW_TASK_COROUTINE);
     SW_REGISTER_LONG_CONSTANT("SWOOLE_TASK_PEEK", SW_TASK_PEEK);
     SW_REGISTER_LONG_CONSTANT("SWOOLE_TASK_NOREPLY", SW_TASK_NOREPLY);
+
+    SW_REGISTER_LONG_CONSTANT("SWOOLE_WORKER_BUSY", SW_WORKER_BUSY);
+    SW_REGISTER_LONG_CONSTANT("SWOOLE_WORKER_IDLE", SW_WORKER_IDLE);
 }
 
 zend_fcall_info_cache* php_swoole_server_get_fci_cache(swServer *serv, int server_fd, int event_type)
@@ -1152,6 +1156,7 @@ void php_swoole_server_before_start(swServer *serv, zval *zobject)
      */
     serv->create_buffers = php_swoole_server_worker_create_buffers;
     serv->get_buffer = php_swoole_server_worker_get_buffer;
+    serv->get_buffer_len = php_swoole_server_worker_get_buffer_len;
     serv->add_buffer_len = php_swoole_server_worker_add_buffer_len;
     serv->move_buffer = php_swoole_server_worker_move_buffer;
     serv->get_packet = php_swoole_server_worker_get_packet;
@@ -2165,6 +2170,13 @@ static void* php_swoole_server_worker_get_buffer(swServer *serv, swDataHead *inf
     }
 
     return worker_buffer->val + worker_buffer->len;
+}
+
+static size_t php_swoole_server_worker_get_buffer_len(swServer *serv, swDataHead *info)
+{
+    zend_string *worker_buffer = php_swoole_server_worker_get_input_buffer(serv, info->reactor_id);
+
+    return worker_buffer == NULL ? 0 : worker_buffer->len;
 }
 
 static void php_swoole_server_worker_add_buffer_len(swServer *serv, swDataHead *info, size_t len)
@@ -3296,31 +3308,6 @@ static PHP_METHOD(swoole_server, close)
     SW_CHECK_RETURN(serv->close(serv, (int )fd, (int )reset));
 }
 
-static PHP_METHOD(swoole_server, confirm)
-{
-    if (swIsMaster())
-    {
-        php_swoole_fatal_error(E_WARNING, "can't confirm the connections in master process");
-        RETURN_FALSE;
-    }
-
-    swServer *serv = php_swoole_server_get_and_check_server(ZEND_THIS);
-    if (sw_unlikely(!serv->gs->start))
-    {
-        php_swoole_fatal_error(E_WARNING, "server is not running");
-        RETURN_FALSE;
-    }
-
-    zend_long fd;
-
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "l", &fd) == FAILURE)
-    {
-        RETURN_FALSE;
-    }
-
-    SW_CHECK_RETURN(serv->feedback(serv, fd, SW_SERVER_EVENT_CONFIRM));
-}
-
 static PHP_METHOD(swoole_server, pause)
 {
     swServer *serv = php_swoole_server_get_and_check_server(ZEND_THIS);
@@ -4382,6 +4369,32 @@ static PHP_METHOD(swoole_server, getWorkerId)
     else
     {
         RETURN_LONG(SwooleWG.id);
+    }
+}
+
+static PHP_METHOD(swoole_server, getWorkerStatus)
+{
+    swServer *serv = php_swoole_server_get_and_check_server(ZEND_THIS);
+    if (sw_unlikely(!serv->gs->start))
+    {
+        php_swoole_fatal_error(E_WARNING, "server is not running");
+        RETURN_FALSE;
+    }
+
+    zend_long worker_id = SwooleWG.id;
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &worker_id) == FAILURE)
+    {
+        RETURN_FALSE;
+    }
+
+    swWorker *worker = swServer_get_worker(serv, worker_id);
+    if (!worker)
+    {
+        RETURN_FALSE;
+    }
+    else
+    {
+        RETURN_LONG(worker->status);
     }
 }
 

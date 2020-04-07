@@ -60,7 +60,7 @@ static inline enum swReturn_code swReactorThread_verify_ssl_state(swReactor *rea
     conn->ssl_ready = 1;
     if (port->ssl_option.client_cert_file)
     {
-        int retval = swSSL_get_client_certificate(_socket->ssl, SwooleTG.buffer_stack->str, SwooleTG.buffer_stack->size);
+        int retval = swSSL_get_peer_cert(_socket->ssl, SwooleTG.buffer_stack->str, SwooleTG.buffer_stack->size);
         if (retval < 0)
         {
             if (port->ssl_option.verify_peer)
@@ -96,7 +96,6 @@ static inline enum swReturn_code swReactorThread_verify_ssl_state(swReactor *rea
     _delay_receive:
     if (serv->enable_delay_receive)
     {
-        _socket->listen_wait = 1;
         if (reactor->del(reactor, _socket) < 0)
         {
             return SW_ERROR;
@@ -418,7 +417,7 @@ static void swReactorThread_shutdown(swReactor *reactor)
             continue;
         }
         swConnection *conn = swServer_connection_get(serv, fd);
-        if (conn && conn->socket && conn->active && !conn->peer_closed && conn->socket->fdtype == SW_FD_SESSION)
+        if (swServer_connection_valid(serv, conn) && !conn->peer_closed && !conn->socket->removed)
         {
             swReactor_remove_read_event(reactor, conn->socket);
         }

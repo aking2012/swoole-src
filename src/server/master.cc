@@ -17,7 +17,6 @@
 #include "server.h"
 #include "swoole_cxx.h"
 #include "http.h"
-#include "connection.h"
 #include <sys/time.h>
 #include <time.h>
 
@@ -38,6 +37,7 @@ static int swServer_tcp_feedback(swServer *serv, int session_id, int event);
 
 static void** swServer_worker_create_buffers(swServer *serv, uint buffer_num);
 static void* swServer_worker_get_buffer(swServer *serv, swDataHead *info);
+static size_t swServer_worker_get_buffer_len(swServer *serv, swDataHead *info);
 static void swServer_worker_add_buffer_len(swServer *serv, swDataHead *info, size_t len);
 static void swServer_worker_move_buffer(swServer *serv, swPipeBuffer *buffer);
 
@@ -922,6 +922,7 @@ void swServer_init(swServer *serv)
      */
     serv->create_buffers = swServer_worker_create_buffers;
     serv->get_buffer = swServer_worker_get_buffer;
+    serv->get_buffer_len = swServer_worker_get_buffer_len;
     serv->add_buffer_len = swServer_worker_add_buffer_len;
     serv->move_buffer = swServer_worker_move_buffer;
     serv->get_packet = swServer_worker_get_packet;
@@ -1086,11 +1087,6 @@ static int swServer_tcp_feedback(swServer *serv, int session_id, int event)
         return SW_ERR;
     }
 
-    if (event == SW_SERVER_EVENT_CONFIRM && !conn->socket->listen_wait)
-    {
-        return SW_ERR;
-    }
-
     swSendData _send;
     bzero(&_send, sizeof(_send));
     _send.info.type = event;
@@ -1215,17 +1211,15 @@ int swServer_master_send(swServer *serv, swSendData *_send)
     {
         goto _close_fd;
     }
-    else if (_send->info.type == SW_SERVER_EVENT_CONFIRM)
-    {
-        reactor->add(reactor, conn->socket, SW_EVENT_READ);
-        conn->socket->listen_wait = 0;
-        return SW_OK;
-    }
     /**
      * pause recv data
      */
     else if (_send->info.type == SW_SERVER_EVENT_PAUSE_RECV)
     {
+        if (_socket->removed || !(_socket->events & SW_EVENT_READ))
+        {
+            return SW_OK;
+        }
         if (_socket->events & SW_EVENT_WRITE)
         {
             return reactor->set(reactor, conn->socket, SW_EVENT_WRITE);
@@ -1240,6 +1234,10 @@ int swServer_master_send(swServer *serv, swSendData *_send)
      */
     else if (_send->info.type == SW_SERVER_EVENT_RESUME_RECV)
     {
+        if (!_socket->removed || (_socket->events & SW_EVENT_READ))
+        {
+            return SW_OK;
+        }
         if (_socket->events & SW_EVENT_WRITE)
         {
             return reactor->set(reactor, _socket, SW_EVENT_READ | SW_EVENT_WRITE);
@@ -1494,6 +1492,13 @@ static void* swServer_worker_get_buffer(swServer *serv, swDataHead *info)
     }
 
     return worker_buffer->str + worker_buffer->length;
+}
+
+static size_t swServer_worker_get_buffer_len(swServer *serv, swDataHead *info)
+{
+    swString *worker_buffer = swServer_worker_get_input_buffer(serv, info->reactor_id);
+
+    return worker_buffer == NULL ? 0 : worker_buffer->length;
 }
 
 static void swServer_worker_add_buffer_len(swServer *serv, swDataHead *info, size_t len)
@@ -1965,6 +1970,7 @@ static swConnection* swServer_connection_new(swServer *serv, swListenPort *ls, s
     swConnection *connection = &(serv->connection_list[fd]);
     bzero(connection, sizeof(*connection));
     _socket->object = connection;
+    _socket->removed = 1;
     _socket->buffer_size = ls->socket_buffer_size;
 
     //TCP Nodelay
